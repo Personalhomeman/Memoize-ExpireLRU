@@ -17,11 +17,12 @@
 package Memoize::ExpireLRU;
 
 use strict;
+use AutoLoader qw(AUTOLOAD);
 use Carp;
 use vars qw($DEBUG $VERSION);
 
 $DEBUG = 0;
-$VERSION = '0.53';
+$VERSION = '0.55';
 
 # Usage:  memoize func ,
 # 		TIE => [
@@ -32,28 +33,49 @@ $VERSION = '0.53';
 # 			TIE => [...]
 # 		       ]
 
-my(@AllTies);
+#############################################
+##
+## This used to all be a bit more reasonable, but then it turns out
+## that Memoize doesn't call FETCH if EXISTS returns true and it's in
+## scalar context. Thus, everything really has to be done in the
+## EXISTS code. Harumph.
+##
+#############################################
+
+use vars qw(@AllTies $EndDebug);
+
+$EndDebug = 0;
 
 1;
 
 sub TIEHASH {
     my ($package, %args, %cache, @index, @Tune, @Stats);
     ($package, %args)= @_;
-    $args{CACHESIZE} or croak "Memoize::ExpireLRU: CACHESIZE must be specified; aborting";
-    $args{TUNECACHESIZE} ||= 0;
-    $args{C} = \%cache;
-    $args{I} = \@index;
-    if ($args{TUNECACHESIZE}) {
-	my($i);
-	for ($i = 0; $i < $args{TUNECACHESIZE}; $i++) {
+    my($self) = bless \%args => $package;
+    $self->{CACHESIZE} or
+	    croak "Memoize::ExpireLRU: CACHESIZE must be specified >0; aborting";
+    $self->{TUNECACHESIZE} ||= 0;
+    delete($self->{TUNECACHESIZE}) unless $self->{TUNECACHESIZE};
+    $self->{C} = \%cache;
+    $self->{I} = \@index;
+    defined($self->{INSTANCE}) or $self->{INSTANCE} = "$self";
+    foreach (@AllTies) {
+	if ($_->{INSTANCE} eq $self->{INSTANCE}) {
+	    croak "Memoize::ExpireLRU: Attempt to register the same routine twice; aborting";
+	}
+    }
+    if ($self->{TUNECACHESIZE}) {
+	$EndDebug = 1;
+	for (my $i = 0; $i < $args{TUNECACHESIZE}; $i++) {
 	    $Stats[$i] = 0;
 	}
-	$args{T} = \@Stats;
-	$args{TI} = \@Tune;
-	$args{cm} = $args{ch} = $args{th} = 0;
+	$self->{T} = \@Stats;
+	$self->{TI} = \@Tune;
+	$self->{cm} = $args{ch} = $args{th} = 0;
+	
     }
 
-    if ($args{TIE}) {
+    if ($self->{TIE}) {
 	my($module, $modulefile, @opts, $rc, %tcache);
 	($module, @opts) = @{$args{TIE}};
 	$modulefile = $module . '.pm';
@@ -69,72 +91,83 @@ sub TIEHASH {
 
 	## Preload our cache
 	foreach (keys %tcache) {
-	    $args{C}->{$_} = $tcache{$_}
+	    $self->{C}->{$_} = $tcache{$_}
 	}
-	$args{TC} = \%tcache;
+	$self->{TiC} = \%tcache;
     }
-    push(@AllTies, \%args);
-    bless \%args => $package;
+
+    push(@AllTies, $self);
+    return $self;
 }
 
 sub EXISTS {
     my($self, $key) = @_;
 
-    $DEBUG and print STDERR " >> Exists $key\n";
+    $DEBUG and print STDERR " >> $self->{INSTANCE} >> EXISTS: $key\n";
 
     if (exists $self->{C}->{$key}) {
-	## Take care of tune stat's in the FETCH
-	$self->{ch}++ if exists($self->{TUNECACHESIZE});
+	my($t, $i);#, %t, %r);
+
+	## Adjust the positions in the index cache
+	##    1. Find the old entry in the array (and do the stat's)
+	$i = _find($self->{I}, $self->{C}->{$key}->{t}, $key);
+	if (!defined($i)) {
+	    print STDERR "Cache trashed (unable to find $key)\n";
+	    DumpCache($self->{INSTANCE});
+	    ShowStats;
+	    die "Aborting...";
+	}
+
+	##    2. Remove the old entry from the array
+	$t = splice(@{$self->{I}}, $i, 1);
+
+	##    3. Update the timestamp of the new array entry, as
+	##  well as that in the cache
+	$self->{C}->{$key}->{t} = $t->{t} = time;
+
+	##    4. Store the updated entry back into the array as the MRU
+	unshift(@{$self->{I}}, $t);
+
+	##    5. Adjust stats
+	if (defined($self->{T})) {
+	    $self->{T}->[$i]++ if defined($self->{T});
+	    $self->{ch}++;
+	}
+
+	if ($DEBUG) {
+	    print STDERR "    Cache hit at $i";
+	    print STDERR " ($self->{ch})" if defined($self->{T});
+	    print STDERR ".\n";
+	}
+
 	return 1;
     } else {
-	$DEBUG and print STDERR "    Not in underlying hash at all.\n";
 	if (exists($self->{TUNECACHESIZE})) {
 	    $self->{cm}++;
+	    $DEBUG and print STDERR "    Cache miss ($self->{cm}).\n";
  	    ## Ughhh. A linear search
-	    for (my $i = $self->{CACHESIZE}; $i < $#{$self->{T}}; $i++) {
-		next unless defined($self->{TI}->[$i]->{k})
-			&& $self->{TI}->[$i]->{k} == $key;
+	    my($i, $j);
+	    for ($i = $j = $self->{CACHESIZE}; $i <= $#{$self->{T}}; $i++) {
+		next unless defined($self->{TI})
+			&& defined($self->{TI}->[$i- $j])
+			&& defined($self->{TI}->[$i - $j]->{k})
+			&& $self->{TI}->[$i - $j]->{k} eq $key;
 		$self->{T}->[$i]++;
 		$self->{th}++;
+		$DEBUG and print STDERR "    TestCache hit at $i. ($self->{th})\n";
+		splice(@{$self->{TI}}, $i - $j, 1);
 		return 0;
 	    }
+	} else {
+	    $DEBUG and print STDERR "    Cache miss.\n";
 	}
 	return 0;
     }
 }
 
-sub FETCH {
-    my($self, $key) = @_;
-    my($value, $t, $i);
-    $DEBUG and print STDERR " >> Fetch cached value for $key\n";
-
-    $value = $self->{C}->{$key}->{v};
-
-    ## Now, we need to
-    ##    1. Find the old entry in the array (and do the stat's)
-    $i = _find($self->{I}, $self->{C}->{$key}->{t}, $key);
-
-    ##    2. Remove the old entry from the array
-    $t = splice(@{$self->{I}}, $i, 1);
-    ##    3. Update the timestamp of the new array
-    $self->{C}->{$key}->{t} = $t->{t} = time;
-    ##    4. Store the updated entry back in the array as the MRU
-    unshift(@{$self->{I}}, $t);
-
-    ## Deal with the Tuning stuff
-    if (defined($self->{T})) {
-	$self->{T}->[$i]++;
-	splice(@{$self->{TI}}, $i, 1);
-	unshift(@{$self->{TI}}, $t);
-    }
-
-    ## Finally, return the data
-    return $value;
-}
-
 sub STORE {
     my ($self, $key, $value) = @_;
-    $DEBUG and print STDERR " >> Store $key $value\n";
+    $DEBUG and print STDERR " >> $self->{INSTANCE} >> STORE: $key $value\n";
 
     my(%r, %t);
     $t{t} = $r{t} = time;
@@ -150,6 +183,8 @@ sub STORE {
     # of the LRU queue. Since this is a STORE, we know it doesn't already
     # exist.
     unshift(@{$self->{I}}, \%t);
+    ## Update the tied cache
+    $self->{TC}->{$key} = $value if defined($self->{TC});
 
     ## Do we have too many entries?
     while (scalar(@{$self->{I}}) > $self->{CACHESIZE}) {
@@ -158,18 +193,26 @@ sub STORE {
 	$key = pop(@{$self->{I}});
 	delete($self->{C}->{$key->{k}});
 	delete($self->{TC}->{$key->{k}}) if defined($self->{TC});
+	## Throw it to the beginning of the test cache
+	unshift(@{$self->{TI}}, $key) if defined($self->{T});
     }
 
     ## Now, what about the Tuning Index
     if (defined($self->{T})) {
-	## Same as above.
-	unshift(@{$self->{TI}}, \%t);
-	if (scalar(@{$self->{TI}}) > $self->{TUNECACHESIZE}) {
-	    $#{$self->{TI}} = $self->{TUNECACHESIZE} - 1;
+	if (scalar(@{$self->{TI}}) > $self->{TUNECACHESIZE} - $self->{CACHESIZE}) {
+	    $#{$self->{TI}} = $self->{TUNECACHESIZE} - $self->{CACHESIZE} - 1;
 	}
     }
 
     $value;
+}
+
+sub FETCH {
+    my($self, $key) = @_;
+
+    $DEBUG and print STDERR " >> $self->{INSTANCE} >> FETCH: $key\n";
+
+    return $self->{C}->{$key}->{v};
 }
 
 sub _find ( $$$ ) {
@@ -216,36 +259,67 @@ sub _find ( $$$ ) {
 	print "More trouble\n";
 	return undef;
     }
-    $DEBUG and print STDERR " >> Returning $n value\n";
     return $n;
 }
 
-sub END {
-    my($k) = 0;
-    my($self);
-    foreach $self (@AllTies) {
-	next unless defined($self->{T});
-	print STDERR "ExpireLRU Statistics:\n" unless $k;
-	$k++;
-	my($name) = $self->{INSTANCE} || $self;
-	print STDERR <<EOS;
-
-		   ExpireLRU instantiation: $name
-				Cache Size: $self->{CACHESIZE}
-		   Experimental Cache Size: $self->{TUNECACHESIZE}
-				Cache Hits: $self->{ch}
-			      Cache Misses: $self->{cm}
-Additional Cache Hist at Experimental Size: $self->{th}
-			     Distribution :
-EOS
-	for (my $i = 1; $i <= $self->{TUNECACHESIZE}; $i++) {
-	    printf STDERR "				      %3d : %s\n",
-		    $i, $self->{T}->[$i-1];
-	}
-    }
+END {
+    print STDERR ShowStats() if $EndDebug;
 }
 
 __END__
+
+sub DumpCache ( $ ) {
+    ## Utility routine to display the caches of the given instance
+    my($Instance, $self, $p) = shift;
+    foreach $self (@AllTies) {
+
+	next unless $self->{INSTANCE} eq $Instance;
+
+	$p = "$Instance:\n    Cache Keys:\n";
+
+	foreach my $x (@{$self->{I}}) {
+	    ## The cache is at $self->{C} (->{$key})
+	    $p .= "        '$x->{k}'\n";
+	}
+	$p .= "    Test Cache Keys:\n";
+	foreach my $x (@{$self->{TI}}) {
+	    $p .= "        '$x->{k}'\n";
+	}
+	return $p;
+    }
+    return "Instance $Instance not found\n";
+}
+
+
+sub ShowStats () {
+    ## Utility routine to show statistics
+    my($k) = 0;
+    my($p) = '';
+    foreach my $self (@AllTies) {
+	next unless defined($self->{T});
+	$p .= "ExpireLRU Statistics:\n" unless $k;
+	$k++;
+
+	$p .= <<EOS;
+
+                   ExpireLRU instantiation: $self->{INSTANCE}
+                                Cache Size: $self->{CACHESIZE}
+                   Experimental Cache Size: $self->{TUNECACHESIZE}
+                                Cache Hits: $self->{ch}
+                              Cache Misses: $self->{cm}
+Additional Cache Hits at Experimental Size: $self->{th}
+                             Distribution : Hits
+EOS
+	for (my $i = 0; $i < $self->{TUNECACHESIZE}; $i++) {
+	    if ($i == $self->{CACHESIZE}) {
+		$p .= "                                     ----   -----\n";
+	    }
+	    $p .= sprintf("                                      %3d : %s\n",
+			  $i, $self->{T}->[$i]);
+	}
+    }
+    return $p;
+}
 
 =head1 NAME
 
@@ -296,6 +370,15 @@ statistics are printed for each routine. The default names are
 somewhat cryptic: this is the purpose of the C<INSTANCE>
 parameter. The value of this parameter will be used as the identifier
 within the statistics report.
+
+=head1 DIAGNOSTIC METHODS
+
+Two additional routines are available but not
+exported. Memoize::ExpireLRU::ShowStats returns a string identical to
+the statistics report printed to STDERR at the end of the program if
+test caches have been enabled; Memoize::ExpireLRU::DumpCache takes the
+instance name of a memoized function as a parameter, and returns a
+string describing the current state of that instance.
 
 =head1 AUTHOR
 
