@@ -2,3 +2,6 @@ Revision history for Perl extension String::Strip
 
 0.52  Wed Mar  8 23:08:34 EST 2000
 	- original version
+
+0.53  Thu Apr  6 23:34:12 EDT 2000
+	- Tiny bug fixes (!= -> ne)

@@ -21,7 +21,7 @@ use Carp;
 use vars qw($DEBUG $VERSION);
 
 $DEBUG = 0;
-$VERSION = '0.52';
+$VERSION = '0.53';
 
 # Usage:  memoize func ,
 # 		TIE => [
@@ -208,10 +208,10 @@ sub _find ( $$$ ) {
     while (($n > 0) && ($time == $Aref->[$n-1]->{t})) {
 	$n--;
     }
-    while (($time == $Aref->[$n]->{t}) && ($key != $Aref->[$n]->{k})) {
+    while (($time == $Aref->[$n]->{t}) && ($key ne $Aref->[$n]->{k})) {
 	$n++;
     }
-    if ($key != $Aref->[$n]->{k}) {
+    if ($key ne $Aref->[$n]->{k}) {
 	## More big trouble
 	print "More trouble\n";
 	return undef;
