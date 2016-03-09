@@ -1,13 +1,16 @@
-Revision history for Perl extension String::Strip
+Revision history for Perl module Memoize::ExpireLRU
 
-0.52  Wed Mar  8 23:08:34 EST 2000
-	- original version
+0.56 2016-03-09 NEILB
+    - Updated this file to follow CPAN::Changes::Spec, and most recent
+      release first.
 
-0.53  Thu Apr  6 23:34:12 EDT 2000
-	- Tiny bug fixes (!= -> ne)
-
-0.54  Tue Apr 11 21:46:37 EDT 2000
+0.55 2000-04-12 BPOWERS
+	- Just why can't you save from a screwed up upload on PAUSE?
 	- Big bug fixes. Consider this the first working version
 
-0.55  Tue Apr 11 21:46:37 EDT 2000
-	- Just why can't you save from a screwed up upload on PAUSE?
+0.53 2000-04-07 BPOWERS
+	- Tiny bug fixes (!= -> ne)
+
+0.52 2000-03-14 BPOWERS
+	- original version
+
