@@ -6,6 +6,7 @@ Revision history for Perl module Memoize::ExpireLRU
     - Moved test.pl to t/02-original.t
     - Updated this file to follow CPAN::Changes::Spec, and most recent
       release first.
+    - Added github repo to doc
 
 0.55 2000-04-12 BPOWERS
 	- Just why can't you save from a screwed up upload on PAUSE?
