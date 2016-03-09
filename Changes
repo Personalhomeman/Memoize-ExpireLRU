@@ -1,6 +1,7 @@
 Revision history for Perl module Memoize::ExpireLRU
 
 0.56 2016-03-09 NEILB
+    - Moved ExpireLRU.pm to lib/Memoize/ExpireLRU.pm
     - Updated this file to follow CPAN::Changes::Spec, and most recent
       release first.
 
