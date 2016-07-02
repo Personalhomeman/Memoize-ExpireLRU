@@ -1,5 +1,9 @@
 Revision history for Perl module Memoize::ExpireLRU
 
+0.55_02 2016-07-02 NEILB
+    - Switched from using the deprecated TIE interface for Memoize,
+      RT#115091
+
 0.55_01 2016-03-09 NEILB
     - Switched to Dist::Zilla
     - Moved ExpireLRU.pm to lib/Memoize/ExpireLRU.pm

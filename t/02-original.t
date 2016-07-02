@@ -47,43 +47,43 @@ sub show ( $ ) {
     print "ok $n\n";
 }
 
-
+{
+tie my %cache, 'Memoize::ExpireLRU',
+         CACHESIZE => 4,
+         TUNECACHESIZE => 6,
+         INSTANCE => 'routine',
+         ;
 memoize('routine',
-	SCALAR_CACHE => ['TIE',
-			 'Memoize::ExpireLRU',
-			 CACHESIZE => 4,
-			 TUNECACHESIZE => 6,
-			 INSTANCE => 'routine',
-			],
+	SCALAR_CACHE => ['HASH' => \%cache],
 	LIST_CACHE => 'FAULT');
-
-if ($flag) {
-    memoize('routine2',
-	    LIST_CACHE => ['TIE',
-			   'Memoize::ExpireLRU',
-			   CACHESIZE => 1,
-			   TUNECACHESIZE => 5,
-			   INSTANCE => 'routine2',
-			  ],
-	    SCALAR_CACHE => 'FAULT',);
-} else {
-    memoize('routine2',
-	    SCALAR_CACHE => ['TIE',
-			     'Memoize::ExpireLRU',
-			     CACHESIZE => 1,
-			     TUNECACHESIZE => 5,
-			     INSTANCE => 'routine2',
-			    ],
-	    LIST_CACHE => 'FAULT');
 }
 
+if ($flag) {
+    tie my %cache, 'Memoize::ExpireLRU',
+        CACHESIZE => 1,
+        TUNECACHESIZE => 5,
+        INSTANCE => 'routine2';
+    memoize('routine2',
+	    LIST_CACHE   => ['HASH' => \%cache],
+	    SCALAR_CACHE => 'FAULT',);
+} else {
+    tie my %cache, 'Memoize::ExpireLRU',
+        CACHESIZE => 1,
+        TUNECACHESIZE => 5,
+        INSTANCE => 'routine2';
+    memoize('routine2',
+	    SCALAR_CACHE => ['HASH' => \%cache],
+	    LIST_CACHE   => 'FAULT');
+}
+
+{
+tie my %cache, 'Memoize::ExpireLRU',
+    CACHESIZE => 4,
+    INSTANCE => 'routine3';
 memoize('routine3',
-	SCALAR_CACHE => ['TIE',
-			 'Memoize::ExpireLRU',
-			 CACHESIZE => 4,
-			 INSTANCE => 'routine3',
-			],
-	LIST_CACHE => 'FAULT');
+	SCALAR_CACHE => ['HASH' => \%cache],
+	LIST_CACHE   => 'FAULT');
+}
 
 $Memoize::ExpireLRU::DEBUG = 1;
 $Memoize::ExpireLRU::DEBUG = 0;
